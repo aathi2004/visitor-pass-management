@@ -11,7 +11,11 @@ import { AppError } from './utils/AppError.js';
 
 const app = express();
 
-app.use(cors({ origin: config.clientUrl, credentials: true }));
+app.use(
+  cors({
+    origin: config.corsOrigins.length ? config.corsOrigins : true,
+  })
+);
 app.use(express.json({ limit: '1mb' }));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
