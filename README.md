@@ -5,6 +5,15 @@ access for **Administrators**, **Receptionists**, and **Employees**, with a comp
 register → approve → check-in → check-out → history workflow, enforced business rules,
 search, reports, and activity history.
 
+## Live Deployment
+
+| App      | URL                                                |
+| -------- | -------------------------------------------------- |
+| Frontend | https://visitor-pass-management.vercel.app         |
+| Backend  | https://visitor-pass-backend.vercel.app            |
+
+Demo accounts: see [Demo Accounts](#demo-accounts).
+
 ## Tech Stack
 
 | Layer      | Technology                                             |
@@ -13,20 +22,23 @@ search, reports, and activity history.
 | Backend    | Node.js, Express.js, JWT auth, express-validator       |
 | Database   | MongoDB (Mongoose)                                     |
 | Auth       | JSON Web Tokens (bcrypt password hashing)              |
+| Hosting    | Vercel (serverless Express + static React)             |
 
-## Getting Started
+## Getting Started (Local Development)
 
 ### Prerequisites
 
 - Node.js 18+
-- MongoDB running locally (`mongodb://127.0.0.1:27017`)
+- MongoDB — either a local instance (`mongodb://127.0.0.1:27017`) or a free
+  [MongoDB Atlas](https://www.mongodb.com/atlas) cluster (see
+  [MongoDB Setup](#mongodb-setup))
 
 ### 1. Backend
 
 ```bash
 cd backend
 npm install
-copy .env.example .env   # adjust values if needed
+copy .env.example .env   # Windows  (macOS/Linux: cp .env.example .env)
 npm run seed             # seeds demo users, employees and sample visits
 npm run dev              # http://localhost:5000
 ```
@@ -36,8 +48,12 @@ npm run dev              # http://localhost:5000
 ```bash
 cd frontend
 npm install
+copy .env.example .env   # optional; VITE_API_URL is only needed when the API is NOT on localhost:5000
 npm run dev              # http://localhost:5173 (proxies /api to backend)
 ```
+
+In development the Vite dev server proxies `/api` requests to `http://localhost:5000`
+(see `frontend/vite.config.js`), so no API URL needs to be configured.
 
 ### Demo Accounts
 
@@ -47,6 +63,111 @@ npm run dev              # http://localhost:5173 (proxies /api to backend)
 | Receptionist  | `receptionist`| `reception123` |
 | Employee      | `arjun`       | `employee123`  |
 | Employee      | `priya`       | `employee123`  |
+
+## Environment Variables
+
+### Backend — `backend/.env`
+
+| Variable        | Required | Default                                       | Description                                        |
+| --------------- | -------- | --------------------------------------------- | -------------------------------------------------- |
+| `PORT`          | no       | `5000`                                        | Local server port                                  |
+| `MONGODB_URI`   | yes*     | `mongodb://127.0.0.1:27017/visitor-pass`      | MongoDB connection string (*required in production)|
+| `JWT_SECRET`    | yes*     | `visitor-pass-dev-secret`                     | Secret used to sign JWTs (*use a strong value in prod) |
+| `JWT_EXPIRES_IN`| no       | `8h`                                          | JWT lifetime                                       |
+| `CORS_ORIGINS`  | no       | `http://localhost:5173`                       | Comma-separated allowed origins, e.g. `https://visitor-pass-management.vercel.app,http://localhost:5173` |
+
+### Frontend — `frontend/.env`
+
+| Variable        | Required | Default | Description                                            |
+| --------------- | -------- | ------- | ------------------------------------------------------ |
+| `VITE_API_URL`  | no       | *(empty)* | Backend base URL for production, e.g. `https://visitor-pass-backend.vercel.app`. When empty, requests go to the same origin (`/api`). |
+
+> `VITE_*` variables are inlined into the frontend build, so the frontend must be
+> **rebuilt/redeployed** after changing `VITE_API_URL`.
+
+## MongoDB Setup
+
+### Option A — Local MongoDB
+
+Install MongoDB Community Server and make sure the service is running on the default
+port. Keep the default `MONGODB_URI` or point it at your instance.
+
+### Option B — MongoDB Atlas (cloud, required for Vercel)
+
+1. Create a free cluster at https://www.mongodb.com/atlas.
+2. **Database Access → Add New Database User** — set a username and password you
+   remember (used in the connection string).
+3. **Network Access → Add IP Address → Allow access from anywhere** (`0.0.0.0/0`) or
+   add your deployment IPs. Atlas returns `bad auth : authentication failed` when the
+   requesting IP is not allowlisted.
+4. **Database → Connect → Drivers** — copy the `mongodb+srv://...` connection string
+   and add your database name, e.g. `...@cluster0.abcd123.mongodb.net/visitor-pass?retryWrites=true&w=majority`.
+5. Set it as `MONGODB_URI` locally and on Vercel.
+
+## Deploy to Vercel
+
+Two separate projects are used: one for the backend API, one for the React frontend.
+
+### Prerequisites
+
+```bash
+npm i -g vercel
+vercel login
+```
+
+### 1. Backend
+
+The backend ships with a Vercel serverless entry point (`backend/api/index.js`) and
+`backend/vercel.json` (routes everything to that entry via `@vercel/node`).
+
+```bash
+cd backend
+vercel deploy --prod --yes
+```
+
+Set these environment variables on the **visitor-pass-backend** project
+(dashboard → Settings → Environment Variables, or `vercel env add`):
+
+| Variable       | Example value                                                        |
+| -------------- | -------------------------------------------------------------------- |
+| `MONGODB_URI`  | `mongodb+srv://<user>:<password>@cluster0.abcd123.mongodb.net/visitor-pass` |
+| `JWT_SECRET`   | any long random string                                                |
+| `CORS_ORIGINS` | `https://visitor-pass-management.vercel.app,http://localhost:5173`    |
+
+Then redeploy:
+
+```bash
+vercel deploy --prod --yes
+```
+
+### 2. Frontend
+
+`frontend/vercel.json` provides SPA rewrites so client-side routes fall back to
+`index.html`.
+
+```bash
+cd frontend
+vercel deploy --prod --yes
+```
+
+Set `VITE_API_URL` to your deployed backend URL, e.g.
+`https://visitor-pass-backend.vercel.app`, then redeploy:
+
+```bash
+vercel deploy --prod --yes
+```
+
+> **Note:** Vite projects build with `vite build`. Vercel auto-detects the framework
+> from the root `package.json`.
+>
+> **Deployment Protection:** if your Vercel team enables SSO Deployment Protection by
+> default, the deployment URLs may redirect to a Vercel login. Disable it under
+> **Project → Settings → Deployment Protection** for public access.
+
+### Local URLs recap
+
+- Backend API: `http://localhost:5000`
+- Frontend dev server: `http://localhost:5173`
 
 ## Roles & Capabilities
 
@@ -99,6 +220,9 @@ Visitor history + activity log maintained
 ```
 visitor-pass/
 ├── backend/
+│   ├── api/
+│   │   └── index.js       # Vercel serverless entry (cached Mongo connection)
+│   ├── vercel.json        # Vercel build/routes config
 │   └── src/
 │       ├── config/          # env config
 │       ├── models/          # User, Employee, VisitRequest (with activity schema)
@@ -107,9 +231,10 @@ visitor-pass/
 │       ├── middleware/      # JWT protect, role authorize, request validation
 │       ├── utils/           # business rules, error handling, async wrapper
 │       ├── app.js           # express app
-│       ├── server.js        # entry point
+│       ├── server.js        # local entry point
 │       └── seed.js          # demo data
 └── frontend/
+    ├── vercel.json          # SPA rewrites
     └── src/
         ├── components/      # Layout, ProtectedRoute, Modal, VisitTable, Badges…
         ├── context/         # AuthProvider (login/logout/session)
