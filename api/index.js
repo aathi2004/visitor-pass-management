@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
-import { config } from '../src/config/index.js';
-import app from '../src/app.js';
+import { config } from '../backend/src/config/index.js';
+import app from '../backend/src/app.js';
 
 const cached = global.mongooseCache || (global.mongooseCache = { promise: null });
 

@@ -7,12 +7,12 @@ search, reports, and activity history.
 
 ## Live Deployment
 
-| App      | URL                                                |
-| -------- | -------------------------------------------------- |
-| Frontend | https://visitor-pass-management.vercel.app         |
-| Backend  | https://visitor-pass-backend.vercel.app            |
+| App    | URL                                        |
+| ------ | ------------------------------------------ |
+| Website | https://visitor-pass-management.vercel.app |
 
-Demo accounts: see [Demo Accounts](#demo-accounts).
+A single application: the React frontend and the Express API (`/api/*`) are served from
+the same URL. Demo accounts: see [Demo Accounts](#demo-accounts).
 
 ## Tech Stack
 
@@ -22,7 +22,7 @@ Demo accounts: see [Demo Accounts](#demo-accounts).
 | Backend    | Node.js, Express.js, JWT auth, express-validator       |
 | Database   | MongoDB (Mongoose)                                     |
 | Auth       | JSON Web Tokens (bcrypt password hashing)              |
-| Hosting    | Vercel (serverless Express + static React)             |
+| Hosting    | Vercel (single project: static React + serverless Express) |
 
 ## Getting Started (Local Development)
 
@@ -33,27 +33,17 @@ Demo accounts: see [Demo Accounts](#demo-accounts).
   [MongoDB Atlas](https://www.mongodb.com/atlas) cluster (see
   [MongoDB Setup](#mongodb-setup))
 
-### 1. Backend
+### Install & run (single app)
 
 ```bash
-cd backend
 npm install
 copy .env.example .env   # Windows  (macOS/Linux: cp .env.example .env)
 npm run seed             # seeds demo users, employees and sample visits
-npm run dev              # http://localhost:5000
+npm run dev              # starts API (:5000) + Vite dev server (:5173)
 ```
 
-### 2. Frontend
-
-```bash
-cd frontend
-npm install
-copy .env.example .env   # optional; VITE_API_URL is only needed when the API is NOT on localhost:5000
-npm run dev              # http://localhost:5173 (proxies /api to backend)
-```
-
-In development the Vite dev server proxies `/api` requests to `http://localhost:5000`
-(see `frontend/vite.config.js`), so no API URL needs to be configured.
+- Frontend: http://localhost:5173
+- API: http://localhost:5000 (the Vite dev server proxies `/api` to it — see `vite.config.js`)
 
 ### Demo Accounts
 
@@ -66,23 +56,18 @@ In development the Vite dev server proxies `/api` requests to `http://localhost:
 
 ## Environment Variables
 
-### Backend — `backend/.env`
+Single `.env` at the repository root (used by both the API and the frontend build).
 
-| Variable        | Required | Default                                       | Description                                        |
-| --------------- | -------- | --------------------------------------------- | -------------------------------------------------- |
-| `PORT`          | no       | `5000`                                        | Local server port                                  |
-| `MONGODB_URI`   | yes*     | `mongodb://127.0.0.1:27017/visitor-pass`      | MongoDB connection string (*required in production)|
+| Variable        | Required | Default                                       | Description                                            |
+| --------------- | -------- | --------------------------------------------- | ------------------------------------------------------ |
+| `PORT`          | no       | `5000`                                        | Local API server port                                  |
+| `MONGODB_URI`   | yes*     | `mongodb://127.0.0.1:27017/visitor-pass`      | MongoDB connection string (*required in production)    |
 | `JWT_SECRET`    | yes*     | `visitor-pass-dev-secret`                     | Secret used to sign JWTs (*use a strong value in prod) |
-| `JWT_EXPIRES_IN`| no       | `8h`                                          | JWT lifetime                                       |
-| `CORS_ORIGINS`  | no       | `http://localhost:5173`                       | Comma-separated allowed origins, e.g. `https://visitor-pass-management.vercel.app,http://localhost:5173` |
+| `JWT_EXPIRES_IN`| no       | `8h`                                          | JWT lifetime                                           |
+| `CORS_ORIGINS`  | no       | `http://localhost:5173`                       | Comma-separated allowed origins (same-origin apps don't need it) |
+| `VITE_API_URL`  | no       | *(empty)*                                     | External API base URL for the built frontend. Leave empty → requests go to the same origin (`/api`). |
 
-### Frontend — `frontend/.env`
-
-| Variable        | Required | Default | Description                                            |
-| --------------- | -------- | ------- | ------------------------------------------------------ |
-| `VITE_API_URL`  | no       | *(empty)* | Backend base URL for production, e.g. `https://visitor-pass-backend.vercel.app`. When empty, requests go to the same origin (`/api`). |
-
-> `VITE_*` variables are inlined into the frontend build, so the frontend must be
+> `VITE_*` variables are inlined into the frontend build, so the app must be
 > **rebuilt/redeployed** after changing `VITE_API_URL`.
 
 ## MongoDB Setup
@@ -106,7 +91,10 @@ port. Keep the default `MONGODB_URI` or point it at your instance.
 
 ## Deploy to Vercel
 
-Two separate projects are used: one for the backend API, one for the React frontend.
+A single Vercel project serves both the built React app and the Express API. The
+`api/index.js` file is the serverless entry (a cached Mongoose connection), the Vite
+build output (`dist/`) is served as static files, and `/api/*` requests are routed to
+the function via `vercel.json`.
 
 ### Prerequisites
 
@@ -115,17 +103,13 @@ npm i -g vercel
 vercel login
 ```
 
-### 1. Backend
-
-The backend ships with a Vercel serverless entry point (`backend/api/index.js`) and
-`backend/vercel.json` (routes everything to that entry via `@vercel/node`).
+### Deploy
 
 ```bash
-cd backend
 vercel deploy --prod --yes
 ```
 
-Set these environment variables on the **visitor-pass-backend** project
+Set these environment variables on the **visitor-pass-management** project
 (dashboard → Settings → Environment Variables, or `vercel env add`):
 
 | Variable       | Example value                                                        |
@@ -140,25 +124,11 @@ Then redeploy:
 vercel deploy --prod --yes
 ```
 
-### 2. Frontend
+The frontend calls `/api` on the same origin, so **no `VITE_API_URL` is needed** for the
+combined deployment. Leave it empty in `.env`.
 
-`frontend/vercel.json` provides SPA rewrites so client-side routes fall back to
-`index.html`.
-
-```bash
-cd frontend
-vercel deploy --prod --yes
-```
-
-Set `VITE_API_URL` to your deployed backend URL, e.g.
-`https://visitor-pass-backend.vercel.app`, then redeploy:
-
-```bash
-vercel deploy --prod --yes
-```
-
-> **Note:** Vite projects build with `vite build`. Vercel auto-detects the framework
-> from the root `package.json`.
+> **Note:** `vercel.json` uses explicit `builds` (serverless function + static build),
+> so Vercel skips framework auto-detection and runs `npm run build` (Vite) at the root.
 >
 > **Deployment Protection:** if your Vercel team enables SSO Deployment Protection by
 > default, the deployment URLs may redirect to a Vercel login. Disable it under
@@ -166,8 +136,8 @@ vercel deploy --prod --yes
 
 ### Local URLs recap
 
-- Backend API: `http://localhost:5000`
-- Frontend dev server: `http://localhost:5173`
+- API: `http://localhost:5000`
+- Vite dev server: `http://localhost:5173`
 
 ## Roles & Capabilities
 
@@ -219,10 +189,9 @@ Visitor history + activity log maintained
 
 ```
 visitor-pass/
+├── api/
+│   └── index.js            # Vercel serverless entry (cached Mongo connection)
 ├── backend/
-│   ├── api/
-│   │   └── index.js       # Vercel serverless entry (cached Mongo connection)
-│   ├── vercel.json        # Vercel build/routes config
 │   └── src/
 │       ├── config/          # env config
 │       ├── models/          # User, Employee, VisitRequest (with activity schema)
@@ -231,17 +200,19 @@ visitor-pass/
 │       ├── middleware/      # JWT protect, role authorize, request validation
 │       ├── utils/           # business rules, error handling, async wrapper
 │       ├── app.js           # express app
-│       ├── server.js        # local entry point
+│       ├── server.js        # local API entry point
 │       └── seed.js          # demo data
-└── frontend/
-    ├── vercel.json          # SPA rewrites
-    └── src/
-        ├── components/      # Layout, ProtectedRoute, Modal, VisitTable, Badges…
-        ├── context/         # AuthProvider (login/logout/session)
-        ├── pages/           # Login, Dashboard, admin/, receptionist/, employee/
-        ├── services/        # axios instance with auth interceptors
-        ├── utils/           # formatting helpers
-        └── styles/          # global stylesheet
+├── src/                     # React frontend (Vite)
+│   ├── components/          # Layout, ProtectedRoute, Modal, VisitTable, Badges…
+│   ├── context/             # AuthProvider (login/logout/session)
+│   ├── pages/               # Login, Dashboard, admin/, receptionist/, employee/
+│   ├── services/            # axios instance with auth interceptors
+│   ├── utils/               # formatting helpers
+│   └── styles/              # global stylesheet
+├── index.html               # Vite entry
+├── vite.config.js           # dev proxy /api → localhost:5000
+├── vercel.json              # serverless function + static build + SPA fallback
+└── package.json             # combined scripts (dev, build, seed, server)
 ```
 
 ## API Summary
