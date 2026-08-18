@@ -2,21 +2,28 @@ import mongoose from 'mongoose';
 import { config } from '../backend/src/config/index.js';
 import app from '../backend/src/app.js';
 
-const cached = global.mongooseCache || (global.mongooseCache = { promise: null });
+let isConnected = false;
 
-function db() {
-  if (mongoose.connection.readyState === 1) return Promise.resolve();
-  if (!cached.promise) {
-    cached.promise = mongoose.connect(config.mongoUri, {
-      serverSelectionTimeoutMS: 5000,
-    }).catch((err) => {
-      cached.promise = null;
-      throw err;
-    });
-  }
-  return cached.promise;
+async function connectDB() {
+  if (isConnected && mongoose.connection.readyState === 1) return;
+  await mongoose.connect(config.mongoUri, {
+    serverSelectionTimeoutMS: 15000,
+    socketTimeoutMS: 20000,
+    connectTimeoutMS: 15000,
+  });
+  isConnected = true;
 }
 
-db().catch((err) => console.error('[vercel] MongoDB connection failed:', err.message));
+const handler = async (req, res) => {
+  try {
+    await connectDB();
+  } catch (err) {
+    console.error('[vercel] MongoDB connection failed:', err.message);
+    return res.status(503).json({ success: false, message: 'Database connection failed. Please try again.' });
+  }
+  return app(req, res);
+};
 
-export default app;
+export default handler;
+
+export const config = { maxDuration: 30 };
