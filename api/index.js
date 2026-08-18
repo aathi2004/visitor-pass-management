@@ -1,12 +1,13 @@
 import mongoose from 'mongoose';
-import { config } from '../backend/src/config/index.js';
 import app from '../backend/src/app.js';
 
 let isConnected = false;
 
 async function connectDB() {
   if (isConnected && mongoose.connection.readyState === 1) return;
-  await mongoose.connect(config.mongoUri, {
+  const mongoUri = process.env.MONGODB_URI;
+  if (!mongoUri) throw new Error('MONGODB_URI env variable is not set');
+  await mongoose.connect(mongoUri, {
     serverSelectionTimeoutMS: 15000,
     socketTimeoutMS: 20000,
     connectTimeoutMS: 15000,
@@ -26,4 +27,4 @@ const handler = async (req, res) => {
 
 export default handler;
 
-export const config = { maxDuration: 30 };
+export const maxDuration = 30;
