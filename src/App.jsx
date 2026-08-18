@@ -9,9 +9,13 @@ import Employees from './pages/admin/Employees.jsx';
 import Users from './pages/admin/Users.jsx';
 import Reports from './pages/admin/Reports.jsx';
 import ActivityLog from './pages/admin/ActivityLog.jsx';
+import AuditLog from './pages/admin/AuditLog.jsx';
+import Settings from './pages/admin/Settings.jsx';
+import EmployeeAssignments from './pages/admin/EmployeeAssignments.jsx';
 import RegisterVisitor from './pages/receptionist/RegisterVisitor.jsx';
 import Visitors from './pages/receptionist/Visitors.jsx';
 import MyRequests from './pages/employee/MyRequests.jsx';
+import Notifications from './pages/Notifications.jsx';
 
 export default function App() {
   return (
@@ -60,6 +64,30 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/audit-logs"
+          element={
+            <ProtectedRoute roles={['admin']}>
+              <AuditLog />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <ProtectedRoute roles={['admin']}>
+              <Settings />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/assignments"
+          element={
+            <ProtectedRoute roles={['admin', 'receptionist']}>
+              <EmployeeAssignments />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Receptionist */}
         <Route
@@ -88,6 +116,9 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+
+        {/* All roles */}
+        <Route path="/notifications" element={<Notifications />} />
       </Route>
 
       <Route path="/404" element={<NotFound />} />

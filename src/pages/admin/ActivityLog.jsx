@@ -21,15 +21,21 @@ export default function ActivityLog() {
   const [action, setAction] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [department, setDepartment] = useState('');
+  const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get('/employees/departments').then((res) => setDepartments(res.data.data || [])).catch(() => {});
+  }, []);
 
   const load = useCallback(
     async (page = 1) => {
       setLoading(true);
       try {
-        const res = await api.get('/reports/activities', {
-          params: { action, from, to, page, limit: 20 },
-        });
+        const params = { action, from, to, department, page, limit: 20 };
+        Object.keys(params).forEach((k) => !params[k] && delete params[k]);
+        const res = await api.get('/reports/activities', { params });
         setRows(res.data.data);
         setMeta(res.data.pagination);
       } catch (err) {
@@ -38,15 +44,12 @@ export default function ActivityLog() {
         setLoading(false);
       }
     },
-    [action, from, to]
+    [action, from, to, department]
   );
 
   useEffect(() => {
     load(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [action, from, to]);
-
-  const apply = () => load(1);
+  }, [load]);
 
   return (
     <div>
@@ -65,6 +68,15 @@ export default function ActivityLog() {
               </select>
             </div>
             <div className="form-group">
+              <label>Department</label>
+              <select value={department} onChange={(e) => setDepartment(e.target.value)}>
+                <option value="">All Departments</option>
+                {departments.map((d) => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
               <label>From</label>
               <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
             </div>
@@ -72,7 +84,7 @@ export default function ActivityLog() {
               <label>To</label>
               <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
             </div>
-            <button className="btn btn-primary" style={{ alignSelf: 'flex-end' }} onClick={apply}>
+            <button className="btn btn-primary" style={{ alignSelf: 'flex-end' }} onClick={() => load(1)}>
               Filter
             </button>
           </div>
@@ -85,7 +97,7 @@ export default function ActivityLog() {
           <span className="badge approved">{meta.total} events</span>
         </div>
         {loading ? (
-          <Spinner text="Loading activity…" />
+          <Spinner text="Loading activity..." />
         ) : rows.length === 0 ? (
           <EmptyState icon="🕒" title="No activity found" subtitle="Try adjusting the filters." />
         ) : (
@@ -97,6 +109,7 @@ export default function ActivityLog() {
                     <th>Action</th>
                     <th>Visitor</th>
                     <th>Employee</th>
+                    <th>Department</th>
                     <th>Visit Date</th>
                     <th>Date & Time</th>
                     <th>Performed By</th>
@@ -119,6 +132,7 @@ export default function ActivityLog() {
                       </td>
                       <td style={{ fontWeight: 600 }}>{r.visitorName}</td>
                       <td>{r.employeeName || '—'}</td>
+                      <td style={{ fontSize: 12, color: 'var(--muted)' }}>{r.employeeDepartment || '—'}</td>
                       <td>{r.date}</td>
                       <td style={{ whiteSpace: 'nowrap' }}>{formatDateTime(r.timestamp)}</td>
                       <td>

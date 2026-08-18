@@ -21,6 +21,7 @@ export const ACTION_LABELS = {
   checked_out: 'Checked Out',
   cancelled: 'Cancelled',
   remark_added: 'Remark Added',
+  auto_completed: 'Auto-Completed',
 };
 
 export function formatDateTime(value) {

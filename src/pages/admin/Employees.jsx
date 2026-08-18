@@ -14,6 +14,7 @@ const EMPTY_FORM = {
   email: '',
   phone: '',
   status: 'active',
+  workingHours: { start: '09:00', end: '17:00' },
 };
 
 export default function Employees() {
@@ -57,6 +58,7 @@ export default function Employees() {
   };
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const setWorkingHours = (field) => (e) => setForm((f) => ({ ...f, workingHours: { ...f.workingHours, [field]: e.target.value } }));
 
   const submit = async (e) => {
     e.preventDefault();
@@ -129,6 +131,7 @@ export default function Employees() {
                     <th>Department</th>
                     <th>Designation</th>
                     <th>Contact</th>
+                    <th>Working Hours</th>
                     <th>Status</th>
                     <th>Joined</th>
                     <th className="actions" style={{ textAlign: 'right' }}>Actions</th>
@@ -144,6 +147,9 @@ export default function Employees() {
                       <td>
                         <div>{emp.email}</div>
                         <div style={{ color: 'var(--muted)', fontSize: 12 }}>{emp.phone || '—'}</div>
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        {emp.workingHours?.start || '09:00'} – {emp.workingHours?.end || '17:00'}
                       </td>
                       <td>
                         <span className={`badge ${emp.status}`}>{emp.status}</span>
@@ -228,6 +234,14 @@ export default function Employees() {
             <div className="form-group">
               <label>Phone</label>
               <input value={form.phone} onChange={set('phone')} placeholder="e.g. 9876543210" />
+            </div>
+            <div className="form-group">
+              <label>Working Hours Start</label>
+              <input type="time" value={form.workingHours?.start || '09:00'} onChange={setWorkingHours('start')} />
+            </div>
+            <div className="form-group">
+              <label>Working Hours End</label>
+              <input type="time" value={form.workingHours?.end || '17:00'} onChange={setWorkingHours('end')} />
             </div>
             {modal !== 'create' && (
               <div className="form-group">

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'react-toastify';
 import api, { errorMessage } from '../../services/api.js';
 
@@ -10,10 +10,8 @@ const EMPTY = {
   address: '',
   idType: '',
   idNumber: '',
-  employee: '',
   date: new Date().toISOString().slice(0, 10),
   expectedArrivalTime: '',
-  expectedDepartureTime: '',
   purpose: '',
 };
 
@@ -25,16 +23,9 @@ const toMin = (t) => {
 
 export default function RegisterVisitor() {
   const [form, setForm] = useState(EMPTY);
-  const [employees, setEmployees] = useState([]);
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    api
-      .get('/employees', { params: { limit: 500, status: 'active' } })
-      .then((res) => setEmployees(res.data.data))
-      .catch(() => toast.error('Could not load employee list'));
-  }, []);
+  const [success, setSuccess] = useState(null);
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
@@ -47,20 +38,11 @@ export default function RegisterVisitor() {
     if (!form.phone.trim()) e.phone = 'Visitor phone is required';
     else if (!/^[+\d][\d\s-]{6,}$/.test(form.phone.trim())) e.phone = 'Enter a valid phone number';
     if (form.email && !/^\S+@\S+\.\S+$/.test(form.email)) e.email = 'Enter a valid email';
-    if (!form.employee) e.employee = 'Select the employee to visit';
     if (!form.date) e.date = 'Visit date is required';
     else if (form.date < today) e.date = 'Visit date cannot be earlier than today';
     if (!form.expectedArrivalTime) e.expectedArrivalTime = 'Expected arrival time is required';
-    if (!form.expectedDepartureTime) e.expectedDepartureTime = 'Expected departure time is required';
     if (form.date === today && form.expectedArrivalTime && toMin(form.expectedArrivalTime) < nowMin) {
       e.expectedArrivalTime = 'Arrival time for today cannot be earlier than now';
-    }
-    if (
-      form.expectedArrivalTime &&
-      form.expectedDepartureTime &&
-      toMin(form.expectedDepartureTime) <= toMin(form.expectedArrivalTime)
-    ) {
-      e.expectedDepartureTime = 'Departure time must be later than arrival time';
     }
     if (!form.purpose.trim()) e.purpose = 'Purpose of visit is required';
     setErrors(e);
@@ -74,7 +56,7 @@ export default function RegisterVisitor() {
     try {
       const res = await api.post('/visitors/register', form);
       toast.success(res.data.message);
-      setForm(EMPTY);
+      setSuccess(res.data.data);
     } catch (err) {
       toast.error(errorMessage(err, 'Failed to register visitor'));
     } finally {
@@ -82,12 +64,34 @@ export default function RegisterVisitor() {
     }
   };
 
+  if (success) {
+    return (
+      <div className="card">
+        <div className="card-header">
+          <h3>Visitor Registered</h3>
+        </div>
+        <div className="card-body">
+          <div style={{ padding: 16, background: 'var(--success-bg, #f0fdf4)', borderRadius: 8, marginBottom: 16 }}>
+            <div style={{ fontWeight: 600, marginBottom: 8 }}>Registration Successful</div>
+            <div style={{ fontSize: 14, color: 'var(--muted)' }}>
+              <strong>{success.visitor?.name}</strong> has been registered for <strong>{success.date}</strong> at <strong>{success.expectedArrivalTime}</strong>.
+              <br />The system will auto-assign an available employee when the request is approved.
+            </div>
+          </div>
+          <button className="btn btn-primary" onClick={() => { setSuccess(null); setForm(EMPTY); }}>
+            Register Another Visitor
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="card">
       <div className="card-header">
         <h3>Register Visitor</h3>
         <span style={{ color: 'var(--muted)', fontSize: 13 }}>
-          The request will be sent to the employee for approval.
+          The system will auto-assign an available employee.
         </span>
       </div>
       <div className="card-body">
@@ -142,20 +146,6 @@ export default function RegisterVisitor() {
           <div className="form-grid">
             <div className="form-group">
               <label>
-                Employee to Visit <span className="req">*</span>
-              </label>
-              <select value={form.employee} onChange={set('employee')}>
-                <option value="">— Select employee —</option>
-                {employees.map((emp) => (
-                  <option key={emp._id} value={emp._id}>
-                    {emp.name} · {emp.department} ({emp.employeeId})
-                  </option>
-                ))}
-              </select>
-              {errors.employee && <span className="field-error">{errors.employee}</span>}
-            </div>
-            <div className="form-group">
-              <label>
                 Visit Date <span className="req">*</span>
               </label>
               <input type="date" value={form.date} onChange={set('date')} min={today} />
@@ -167,15 +157,6 @@ export default function RegisterVisitor() {
               </label>
               <input type="time" value={form.expectedArrivalTime} onChange={set('expectedArrivalTime')} />
               {errors.expectedArrivalTime && <span className="field-error">{errors.expectedArrivalTime}</span>}
-            </div>
-            <div className="form-group">
-              <label>
-                Expected Departure <span className="req">*</span>
-              </label>
-              <input type="time" value={form.expectedDepartureTime} onChange={set('expectedDepartureTime')} />
-              {errors.expectedDepartureTime && (
-                <span className="field-error">{errors.expectedDepartureTime}</span>
-              )}
             </div>
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
               <label>

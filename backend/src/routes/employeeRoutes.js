@@ -3,6 +3,7 @@ import { body } from 'express-validator';
 import {
   getEmployees,
   getEmployee,
+  getDepartments,
   createEmployee,
   updateEmployee,
   deleteEmployee,
@@ -22,8 +23,12 @@ const employeeRules = [
   body('email').isEmail().withMessage('Valid email is required'),
   body('phone').optional({ values: 'falsy' }).trim(),
   body('status').optional().isIn(['active', 'inactive']).withMessage('Invalid status'),
+  body('workingHours').optional().isObject().withMessage('Working hours must be an object'),
+  body('workingHours.start').optional().matches(/^([01]\d|2[0-3]):[0-5]\d$/).withMessage('Start time must be HH:mm'),
+  body('workingHours.end').optional().matches(/^([01]\d|2[0-3]):[0-5]\d$/).withMessage('End time must be HH:mm'),
 ];
 
+router.get('/departments', getDepartments);
 router.get('/', getEmployees);
 router.get('/:id', getEmployee);
 router.post('/', authorize('admin'), employeeRules, validate, createEmployee);

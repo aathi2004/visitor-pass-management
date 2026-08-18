@@ -1,5 +1,5 @@
 import { StatusBadge } from './Badge.jsx';
-import { formatDate, formatTime } from '../utils/format.js';
+import { formatDate, formatTime, formatDateTime } from '../utils/format.js';
 
 export default function VisitTable({ items = [], onRowClick, columns = ['visitor', 'employee', 'date', 'time', 'status', 'purpose'], emptyText = 'No visitor records found.' }) {
   return (
@@ -48,9 +48,15 @@ export default function VisitTable({ items = [], onRowClick, columns = ['visitor
                 {columns.includes('date') && <td>{formatDate(v.date)}</td>}
                 {columns.includes('time') && (
                   <td>
-                    {formatTime(v.expectedArrivalTime)}
-                    <span style={{ color: 'var(--muted)' }}> – </span>
-                    {formatTime(v.expectedDepartureTime)}
+                    {v.slotStartTime && v.slotEndTime ? (
+                      <>
+                        {formatDateTime(v.slotStartTime)}
+                        <span style={{ color: 'var(--muted)' }}> – </span>
+                        {formatDateTime(v.slotEndTime)}
+                      </>
+                    ) : (
+                      formatTime(v.expectedArrivalTime)
+                    )}
                   </td>
                 )}
                 {columns.includes('status') && (

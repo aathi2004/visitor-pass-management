@@ -47,8 +47,23 @@ const employeeSchema = new mongoose.Schema(
       ref: 'User',
       default: null,
     },
+    workingHours: {
+      start: {
+        type: String,
+        default: '09:00',
+        match: [/^([01]\d|2[0-3]):[0-5]\d$/, 'Time must be in HH:mm format'],
+      },
+      end: {
+        type: String,
+        default: '17:00',
+        match: [/^([01]\d|2[0-3]):[0-5]\d$/, 'Time must be in HH:mm format'],
+      },
+    },
   },
   { timestamps: true }
 );
+
+employeeSchema.index({ name: 'text', employeeId: 'text', department: 'text', email: 'text' });
+employeeSchema.index({ status: 1 });
 
 export default mongoose.model('Employee', employeeSchema);

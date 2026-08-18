@@ -27,28 +27,15 @@ const registrationRules = [
   body('address').optional({ values: 'falsy' }).trim(),
   body('idType').optional({ values: 'falsy' }).trim(),
   body('idNumber').optional({ values: 'falsy' }).trim(),
-  body('employee').isMongoId().withMessage('Select an employee to visit'),
   body('date').isISO8601().withMessage('Visit date must be in YYYY-MM-DD format'),
   body('expectedArrivalTime')
     .matches(/^([01]\d|2[0-3]):[0-5]\d$/)
     .withMessage('Expected arrival time must be HH:mm'),
-  body('expectedDepartureTime')
-    .matches(/^([01]\d|2[0-3]):[0-5]\d$/)
-    .withMessage('Expected departure time must be HH:mm')
-    .custom((val, { req }) => {
-      const [ah, am] = req.body.expectedArrivalTime.split(':').map(Number);
-      const [dh, dm] = val.split(':').map(Number);
-      if (dh * 60 + dm <= ah * 60 + am) {
-        throw new Error('Expected departure time must be later than arrival time');
-      }
-      return true;
-    }),
   body('purpose').trim().notEmpty().withMessage('Purpose of visit is required'),
 ];
 
 const idParam = [param('id').isMongoId().withMessage('Invalid visit id')];
 
-// Public list (role aware). Receptionist/admin see all, employee scoped automatically.
 router.get('/', getVisitors);
 router.get('/my/stats', myPendingStats);
 router.get('/:id', idParam, validate, getVisit);

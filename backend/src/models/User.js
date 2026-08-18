@@ -72,4 +72,7 @@ userSchema.methods.toJSON = function () {
   return obj;
 };
 
+userSchema.index({ name: 'text', username: 'text', email: 'text' });
+userSchema.index({ role: 1, isActive: 1 });
+
 export default mongoose.model('User', userSchema);

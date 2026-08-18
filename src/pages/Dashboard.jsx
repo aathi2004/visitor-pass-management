@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { Spinner, EmptyState } from '../components/Feedback.jsx';
 import VisitTable from '../components/VisitTable.jsx';
 import VisitDetailModal from '../components/VisitDetailModal.jsx';
+import { WeeklyTrendChart, StatusPieChart, DepartmentBarChart, HourlyPatternChart, EmployeeVisitorChart } from '../components/dashboard/Charts.jsx';
 
 const ICON_MAP = {
   clock: '🕐',
@@ -45,13 +46,15 @@ export default function Dashboard() {
     load();
   }, [load]);
 
-  if (!data) return <Spinner text="Loading dashboard…" />;
+  if (!data) return <Spinner text="Loading dashboard..." />;
 
   const welcome = {
     admin: 'Administrator Overview',
     receptionist: 'Reception Desk Overview',
     employee: 'My Visitor Requests',
   }[user.role];
+
+  const hasCharts = data.charts && (user.role === 'admin' || user.role === 'receptionist');
 
   return (
     <div>
@@ -75,6 +78,21 @@ export default function Dashboard() {
           </div>
         ))}
       </div>
+
+      {hasCharts && (
+        <>
+          <div style={{ marginBottom: 24 }}>
+            <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>Analytics</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 20 }}>
+              <WeeklyTrendChart data={data.charts.weeklyTrend} />
+              <StatusPieChart data={data.charts.statusDistribution} />
+              <DepartmentBarChart data={data.charts.departmentDistribution} />
+              <EmployeeVisitorChart data={data.charts.employeeVisitorCount} />
+              <HourlyPatternChart data={data.charts.hourlyPattern} />
+            </div>
+          </div>
+        </>
+      )}
 
       {data.lists.map((list) => (
         <div className="card" key={list.title} style={{ marginBottom: 24 }}>

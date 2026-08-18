@@ -6,6 +6,7 @@ import Pagination from '../../components/Pagination.jsx';
 import Modal from '../../components/Modal.jsx';
 import VisitTable from '../../components/VisitTable.jsx';
 import VisitDetailModal from '../../components/VisitDetailModal.jsx';
+import SlotTimer from '../../components/SlotTimer.jsx';
 
 const TABS = [
   { key: '', label: 'All Requests' },
@@ -47,6 +48,11 @@ export default function MyRequests() {
 
   useEffect(() => {
     load(1);
+  }, [load]);
+
+  useEffect(() => {
+    const id = setInterval(() => load(1), 5000);
+    return () => clearInterval(id);
   }, [load]);
 
   const submitAction = async (action, body = {}) => {
@@ -106,7 +112,10 @@ export default function MyRequests() {
           visit={selected}
           onClose={() => setSelected(null)}
           footer={
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
+              {(selected.status === 'checked_in' || selected.status === 'approved') && selected.slotEndTime && (
+                <SlotTimer slotEndTime={selected.slotEndTime} status={selected.status === 'checked_in' ? 'checked_in' : ''} />
+              )}
               <button className="btn btn-outline" onClick={() => setModal('remark')}>
                 Add Remark
               </button>

@@ -28,4 +28,20 @@ export function errorMessage(err, fallback = 'Something went wrong. Please try a
   return err?.response?.data?.message || err?.message || fallback;
 }
 
+export async function downloadFile(url, filename) {
+  try {
+    const res = await api.get(url, { responseType: 'blob' });
+    const blob = new Blob([res.data]);
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(link.href);
+  } catch (err) {
+    throw new Error(errorMessage(err, 'Download failed'));
+  }
+}
+
 export default api;

@@ -2,6 +2,7 @@ import User from '../models/User.js';
 import Employee from '../models/Employee.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
+import { logAudit } from '../utils/auditLog.js';
 
 const userQuery = (req) => {
   const { search = '', role = '', page = 1, limit = 10 } = req.query;
@@ -24,6 +25,7 @@ export const getUsers = asyncHandler(async (req, res) => {
     .limit(limit);
 
   res.json({
+    success: true,
     data: users,
     pagination: { page, limit, total, pages: Math.ceil(total / limit) || 0 },
   });
@@ -32,7 +34,7 @@ export const getUsers = asyncHandler(async (req, res) => {
 export const getUser = asyncHandler(async (req, res) => {
   const user = await User.findById(req.params.id).populate('employee');
   if (!user) throw new AppError('User not found.', 404);
-  res.json({ data: user });
+  res.json({ success: true, data: user });
 });
 
 export const createUser = asyncHandler(async (req, res) => {
@@ -54,12 +56,29 @@ export const createUser = asyncHandler(async (req, res) => {
     if (!emp) throw new AppError('Linked employee record not found.', 404);
   }
 
-  const user = await User.create(req.body);
+  const user = await User.create({
+    name: req.body.name,
+    username: req.body.username,
+    email: req.body.email,
+    password: req.body.password,
+    role: req.body.role || 'employee',
+  });
   if (employee) {
     await Employee.findByIdAndUpdate(employee, { user: user._id });
+    user.employee = employee;
+    await user.save();
   }
 
-  res.status(201).json({ data: user, message: 'User account created successfully.' });
+  await logAudit({
+    action: 'user.created',
+    entity: 'User',
+    entityId: user._id,
+    user: req.user,
+    req,
+    changes: { after: { name: user.name, username: user.username, role: user.role } },
+  });
+
+  res.status(201).json({ success: true, data: user, message: 'User account created successfully.' });
 });
 
 export const updateUser = asyncHandler(async (req, res) => {
@@ -74,6 +93,8 @@ export const updateUser = asyncHandler(async (req, res) => {
     const dup = await User.findOne({ email: req.body.email, _id: { $ne: user._id } });
     if (dup) throw new AppError('This email is already registered.');
   }
+
+  const before = { name: user.name, role: user.role, isActive: user.isActive };
 
   if (req.body.password) {
     user.password = req.body.password;
@@ -96,7 +117,17 @@ export const updateUser = asyncHandler(async (req, res) => {
   });
 
   await user.save();
-  res.json({ data: user, message: 'User account updated successfully.' });
+
+  await logAudit({
+    action: 'user.updated',
+    entity: 'User',
+    entityId: user._id,
+    user: req.user,
+    req,
+    changes: { before, after: { name: user.name, role: user.role, isActive: user.isActive } },
+  });
+
+  res.json({ success: true, data: user, message: 'User account updated successfully.' });
 });
 
 export const deleteUser = asyncHandler(async (req, res) => {
@@ -107,7 +138,18 @@ export const deleteUser = asyncHandler(async (req, res) => {
     throw new AppError('You cannot deactivate your own account.', 400);
   }
 
+  const before = { isActive: user.isActive };
   user.isActive = false;
   await user.save();
-  res.json({ data: user, message: 'User account deactivated.' });
+
+  await logAudit({
+    action: 'user.deactivated',
+    entity: 'User',
+    entityId: user._id,
+    user: req.user,
+    req,
+    changes: { before, after: { isActive: false } },
+  });
+
+  res.json({ success: true, data: user, message: 'User account deactivated.' });
 });

@@ -1,6 +1,7 @@
 import VisitRequest, { VISIT_STATUS, ACTION } from '../models/VisitRequest.js';
 import Employee from '../models/Employee.js';
 import User from '../models/User.js';
+import SystemConfig from '../models/SystemConfig.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
 import {
@@ -10,19 +11,30 @@ import {
   addActivity,
   todayStr,
 } from '../utils/visitRules.js';
+import { logAudit } from '../utils/auditLog.js';
+import {
+  notifyVisitRegistered,
+  notifyVisitApproved,
+  notifyVisitRejected,
+  notifyVisitCheckedIn,
+  notifyVisitCheckedOut,
+  notifyVisitCancelled,
+} from '../utils/notify.js';
+import { findAvailableEmployee, autoCompleteVisits } from '../controllers/slotController.js';
 
 const ESCAPE = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/**
- * Search / filter shared by all visitor list screens.
- * Combos: visitor name, employee name, visit date, status.
- */
 export const getVisitors = asyncHandler(async (req, res) => {
+  await autoCompleteVisits();
+
   const {
     visitorName = '',
     employeeName = '',
     date = '',
+    dateFrom = '',
+    dateTo = '',
     status = '',
+    department = '',
     page = 1,
     limit = 10,
     scope,
@@ -38,14 +50,35 @@ export const getVisitors = asyncHandler(async (req, res) => {
     filter.employee = { $in: emps.map((e) => e._id) };
   }
 
-  if (date) filter.date = date;
-  if (status) filter.status = status;
+  if (date) {
+    filter.date = date;
+  } else if (dateFrom || dateTo) {
+    filter.date = {};
+    if (dateFrom) filter.date.$gte = dateFrom;
+    if (dateTo) filter.date.$lte = dateTo;
+  }
 
-  // Employee scope: only requests for the logged-in employee.
+  if (status) {
+    const statuses = status.split(',').map((s) => s.trim()).filter(Boolean);
+    filter.status = statuses.length === 1 ? statuses[0] : { $in: statuses };
+  }
+
+  if (department) {
+    const emps = await Employee.find({ department: new RegExp(ESCAPE(department), 'i') }).select('_id');
+    if (filter.employee?.$in) {
+      const empIds = emps.map((e) => e._id.toString());
+      const existing = filter.employee.$in.map((id) => id.toString());
+      const combined = existing.filter((id) => empIds.includes(id));
+      filter.employee = { $in: combined };
+    } else {
+      filter.employee = { $in: emps.map((e) => e._id) };
+    }
+  }
+
   if (scope === 'employee') {
     const user = await User.findById(req.user._id);
     if (!user.employee) {
-      return res.json({ data: [], pagination: { page: 1, limit, total: 0, pages: 0 } });
+      return res.json({ success: true, data: [], pagination: { page: 1, limit, total: 0, pages: 0 } });
     }
     filter.employee = user.employee;
   }
@@ -54,27 +87,35 @@ export const getVisitors = asyncHandler(async (req, res) => {
   const l = Math.min(100, parseInt(limit, 10) || 10);
   const total = await VisitRequest.countDocuments(filter);
   const data = await VisitRequest.find(filter)
-    .populate('employee', 'name employeeId department designation')
-    .populate('createdBy', 'name role')
+    .populate('employee', 'name employeeId department designation email')
+    .populate('createdBy', 'name role email')
     .populate('activities.user', 'name role')
     .sort({ createdAt: -1 })
     .skip((p - 1) * l)
     .limit(l);
 
-  res.json({ data, pagination: { page: p, limit: l, total, pages: Math.ceil(total / l) || 0 } });
+  res.json({ success: true, data, pagination: { page: p, limit: l, total, pages: Math.ceil(total / l) || 0 } });
 });
 
 export const getVisit = asyncHandler(async (req, res) => {
+  await autoCompleteVisits();
+
   const visit = await VisitRequest.findById(req.params.id)
-    .populate('employee', 'name employeeId department designation')
-    .populate('createdBy', 'name role')
+    .populate('employee', 'name employeeId department designation email')
+    .populate('createdBy', 'name role email')
     .populate('activities.user', 'name role');
   if (!visit) throw new AppError('Visit request not found.', 404);
-  res.json({ data: visit });
+  res.json({ success: true, data: visit });
 });
 
 export const registerVisitor = asyncHandler(async (req, res) => {
   await validateRegistration(VisitRequest, req.body);
+
+  const assignedEmp = await findAvailableEmployee(req.body.expectedArrivalTime);
+
+  if (!assignedEmp) {
+    throw new AppError('No employees are available for the selected arrival time. Please check employee working hours or try a different time.');
+  }
 
   const visit = await VisitRequest.create({
     visitor: {
@@ -86,26 +127,96 @@ export const registerVisitor = asyncHandler(async (req, res) => {
       idType: req.body.idType || '',
       idNumber: req.body.idNumber || '',
     },
-    employee: req.body.employee,
+    employee: assignedEmp ? assignedEmp._id : null,
     date: req.body.date,
     expectedArrivalTime: req.body.expectedArrivalTime,
-    expectedDepartureTime: req.body.expectedDepartureTime,
     purpose: req.body.purpose,
     createdBy: req.user._id,
+    currentTime: new Date(),
   });
 
-  addActivity(visit, ACTION.CREATED, req.user, `Visit request created for ${req.body.name}`);
+  const empNote = assignedEmp ? ` Auto-assigned to ${assignedEmp.name}.` : ' No employee available for assignment.';
+  addActivity(visit, ACTION.CREATED, req.user, `Visit request created for ${req.body.name}.${empNote}`);
   await visit.save();
 
   const populated = await VisitRequest.findById(visit._id)
-    .populate('employee', 'name employeeId department designation')
-    .populate('createdBy', 'name role')
+    .populate('employee', 'name employeeId department designation email')
+    .populate('createdBy', 'name role email')
     .populate('activities.user', 'name role');
 
-  res.status(201).json({ data: populated, message: 'Visit request registered and awaiting employee approval.' });
+  await logAudit({
+    action: 'visit.created',
+    entity: 'VisitRequest',
+    entityId: visit._id,
+    user: req.user,
+    req,
+    changes: { after: { visitor: visit.visitor, date: visit.date } },
+  });
+
+  res.status(201).json({ success: true, data: populated, message: 'Visit request registered and awaiting approval.' });
+});
+
+export const approveRequest = asyncHandler(async (req, res) => {
+  const visit = await VisitRequest.findById(req.params.id);
+  if (!visit) throw new AppError('Visit request not found.', 404);
+
+  const isAdmin = req.user.role === 'admin';
+  if (!isAdmin) {
+    if (req.user.role !== 'employee') {
+      throw new AppError('Only employees or administrators can review requests.', 403);
+    }
+    if (!req.user.employee || String(req.user.employee) !== String(visit.employee || '')) {
+      if (visit.employee) {
+        throw new AppError('You can only review requests addressed to you.', 403);
+      }
+    }
+  }
+
+  if (visit.status !== VISIT_STATUS.PENDING) {
+    throw new AppError('Only pending requests can be approved.');
+  }
+
+  if (!visit.employee) {
+    const assignedEmp = await findAvailableEmployee(visit.expectedArrivalTime);
+    if (!assignedEmp) {
+      throw new AppError('No employees available for assignment at this time. Please try again later.');
+    }
+    visit.employee = assignedEmp._id;
+  }
+
+  const config = await SystemConfig.getConfig();
+  const now = new Date();
+  const durationMs = config.slotUnit === 'seconds' ? config.slotDuration * 1000 : config.slotDuration * 60 * 1000;
+
+  visit.status = VISIT_STATUS.APPROVED;
+  visit.slotStartTime = now;
+  visit.slotEndTime = new Date(now.getTime() + durationMs);
+
+  addActivity(visit, ACTION.APPROVED, req.user, `Approved. Slot: ${now.toLocaleTimeString()} – ${visit.slotEndTime.toLocaleTimeString()}`);
+  await visit.save();
+
+  const populated = await VisitRequest.findById(visit._id)
+    .populate('employee', 'name employeeId department email')
+    .populate('createdBy', 'name role email')
+    .populate('activities.user', 'name role');
+
+  const empName = populated.employee?.name || 'Unknown';
+  await logAudit({
+    action: 'visit.approved',
+    entity: 'VisitRequest',
+    entityId: visit._id,
+    user: req.user,
+    req,
+    changes: { before: { status: 'pending' }, after: { status: 'approved', employee: empName, slotEndTime: visit.slotEndTime } },
+  });
+  await notifyVisitApproved(populated, req.user);
+
+  res.json({ success: true, data: populated, message: 'Visit request approved and employee assigned.' });
 });
 
 export const checkInVisitor = asyncHandler(async (req, res) => {
+  await autoCompleteVisits();
+
   const visit = await VisitRequest.findById(req.params.id);
   canCheckIn(visit);
 
@@ -115,9 +226,19 @@ export const checkInVisitor = asyncHandler(async (req, res) => {
   await visit.save();
 
   const populated = await VisitRequest.findById(visit._id)
-    .populate('employee', 'name employeeId department')
+    .populate('employee', 'name employeeId department email')
     .populate('activities.user', 'name role');
-  res.json({ data: populated, message: 'Visitor checked in successfully.' });
+
+  await logAudit({
+    action: 'visit.checked_in',
+    entity: 'VisitRequest',
+    entityId: visit._id,
+    user: req.user,
+    req,
+  });
+  await notifyVisitCheckedIn(populated, req.user);
+
+  res.json({ success: true, data: populated, message: 'Visitor checked in successfully.' });
 });
 
 export const checkOutVisitor = asyncHandler(async (req, res) => {
@@ -131,9 +252,19 @@ export const checkOutVisitor = asyncHandler(async (req, res) => {
   await visit.save();
 
   const populated = await VisitRequest.findById(visit._id)
-    .populate('employee', 'name employeeId department')
+    .populate('employee', 'name employeeId department email')
     .populate('activities.user', 'name role');
-  res.json({ data: populated, message: 'Visitor checked out successfully.' });
+
+  await logAudit({
+    action: 'visit.checked_out',
+    entity: 'VisitRequest',
+    entityId: visit._id,
+    user: req.user,
+    req,
+  });
+  await notifyVisitCheckedOut(populated, req.user);
+
+  res.json({ success: true, data: populated, message: 'Visitor checked out successfully.' });
 });
 
 export const cancelVisit = asyncHandler(async (req, res) => {
@@ -143,50 +274,43 @@ export const cancelVisit = asyncHandler(async (req, res) => {
     throw new AppError('Only pending or approved visits can be cancelled.');
   }
 
+  const previousStatus = visit.status;
   visit.status = VISIT_STATUS.CANCELLED;
   addActivity(visit, ACTION.CANCELLED, req.user, 'Visit cancelled');
   await visit.save();
 
   const populated = await VisitRequest.findById(visit._id)
-    .populate('employee', 'name employeeId department')
+    .populate('employee', 'name employeeId department email')
     .populate('activities.user', 'name role');
-  res.json({ data: populated, message: 'Visit cancelled successfully.' });
-});
 
-const canDecide = (req, visit) => {
-  const isAdmin = req.user.role === 'admin';
-  if (isAdmin) return;
-  if (req.user.role !== 'employee') {
-    throw new AppError('Only employees or administrators can review requests.', 403);
-  }
-  if (!req.user.employee || String(req.user.employee) !== String(visit.employee)) {
-    throw new AppError('You can only review requests addressed to you.', 403);
-  }
-};
+  await logAudit({
+    action: 'visit.cancelled',
+    entity: 'VisitRequest',
+    entityId: visit._id,
+    user: req.user,
+    req,
+    changes: { before: { status: previousStatus }, after: { status: 'cancelled' } },
+  });
+  await notifyVisitCancelled(populated, req.user);
 
-export const approveRequest = asyncHandler(async (req, res) => {
-  const visit = await VisitRequest.findById(req.params.id);
-  if (!visit) throw new AppError('Visit request not found.', 404);
-  canDecide(req, visit);
-
-  if (visit.status !== VISIT_STATUS.PENDING) {
-    throw new AppError('Only pending requests can be approved.');
-  }
-
-  visit.status = VISIT_STATUS.APPROVED;
-  addActivity(visit, ACTION.APPROVED, req.user, req.body.remark || 'Request approved');
-  await visit.save();
-
-  const populated = await VisitRequest.findById(visit._id)
-    .populate('employee', 'name employeeId department')
-    .populate('activities.user', 'name role');
-  res.json({ data: populated, message: 'Visit request approved.' });
+  res.json({ success: true, data: populated, message: 'Visit cancelled successfully.' });
 });
 
 export const rejectRequest = asyncHandler(async (req, res) => {
   const visit = await VisitRequest.findById(req.params.id);
   if (!visit) throw new AppError('Visit request not found.', 404);
-  canDecide(req, visit);
+
+  const isAdmin = req.user.role === 'admin';
+  if (!isAdmin) {
+    if (req.user.role !== 'employee') {
+      throw new AppError('Only employees or administrators can review requests.', 403);
+    }
+    if (!req.user.employee || String(req.user.employee) !== String(visit.employee || '')) {
+      if (visit.employee) {
+        throw new AppError('You can only review requests addressed to you.', 403);
+      }
+    }
+  }
 
   if (visit.status !== VISIT_STATUS.PENDING) {
     throw new AppError('Only pending requests can be rejected.');
@@ -199,15 +323,35 @@ export const rejectRequest = asyncHandler(async (req, res) => {
   await visit.save();
 
   const populated = await VisitRequest.findById(visit._id)
-    .populate('employee', 'name employeeId department')
+    .populate('employee', 'name employeeId department email')
+    .populate('createdBy', 'name role email')
     .populate('activities.user', 'name role');
-  res.json({ data: populated, message: 'Visit request rejected.' });
+
+  await logAudit({
+    action: 'visit.rejected',
+    entity: 'VisitRequest',
+    entityId: visit._id,
+    user: req.user,
+    req,
+    changes: { before: { status: 'pending' }, after: { status: 'rejected', remark: reason } },
+  });
+  await notifyVisitRejected(populated, req.user);
+
+  res.json({ success: true, data: populated, message: 'Visit request rejected.' });
 });
 
 export const addRemark = asyncHandler(async (req, res) => {
   const visit = await VisitRequest.findById(req.params.id);
   if (!visit) throw new AppError('Visit request not found.', 404);
-  canDecide(req, visit);
+
+  if (visit.employee) {
+    const isAdmin = req.user.role === 'admin';
+    if (!isAdmin && req.user.role === 'employee') {
+      if (!req.user.employee || String(req.user.employee) !== String(visit.employee)) {
+        throw new AppError('You can only remark on requests addressed to you.', 403);
+      }
+    }
+  }
 
   if (!req.body.remark || !req.body.remark.trim()) {
     throw new AppError('Remark text is required.');
@@ -218,15 +362,15 @@ export const addRemark = asyncHandler(async (req, res) => {
   await visit.save();
 
   const populated = await VisitRequest.findById(visit._id)
-    .populate('employee', 'name employeeId department')
+    .populate('employee', 'name employeeId department email')
     .populate('activities.user', 'name role');
-  res.json({ data: populated, message: 'Remark added successfully.' });
+  res.json({ success: true, data: populated, message: 'Remark added successfully.' });
 });
 
 export const myPendingStats = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id);
   if (!user.employee) {
-    return res.json({ data: { pending: 0, approvedToday: 0 } });
+    return res.json({ success: true, data: { pending: 0, approvedToday: 0 } });
   }
   const pending = await VisitRequest.countDocuments({
     employee: user.employee,
@@ -237,5 +381,5 @@ export const myPendingStats = asyncHandler(async (req, res) => {
     status: { $in: [VISIT_STATUS.APPROVED, VISIT_STATUS.CHECKED_IN] },
     date: todayStr(),
   });
-  res.json({ data: { pending, approvedToday } });
+  res.json({ success: true, data: { pending, approvedToday } });
 });

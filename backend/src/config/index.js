@@ -13,4 +13,12 @@ export const config = {
   jwtSecret: process.env.JWT_SECRET || 'visitor-pass-dev-secret',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '8h',
   corsOrigins,
+  smtp: {
+    host: process.env.SMTP_HOST || '',
+    port: parseInt(process.env.SMTP_PORT || '587', 10),
+    secure: process.env.SMTP_SECURE === 'true',
+    user: process.env.SMTP_USER || '',
+    pass: process.env.SMTP_PASS || '',
+  },
+  emailFrom: process.env.EMAIL_FROM || 'noreply@visitorpass.com',
 };

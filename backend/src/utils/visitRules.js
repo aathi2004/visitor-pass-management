@@ -1,9 +1,7 @@
 import VisitRequest, { VISIT_STATUS } from '../models/VisitRequest.js';
+import SystemConfig from '../models/SystemConfig.js';
 import { AppError } from './AppError.js';
 
-/**
- * Date/time helpers (local server time).
- */
 export const todayStr = () => toDateStr(new Date());
 
 export function toDateStr(d) {
@@ -19,24 +17,18 @@ export const nowMinutes = () => {
 };
 
 export function toMinutes(timeStr) {
+  if (!timeStr || typeof timeStr !== 'string') return -1;
   const [h, m] = timeStr.split(':').map(Number);
-  return h * 60 + m;
+  return (h || 0) * 60 + (m || 0);
 }
 
-/**
- * Rule 3 - Visit date cannot be earlier than the current date.
- * Rule 4 - For today's registrations, expected arrival time cannot be earlier
- *          than the current time.
- */
 export function validateVisitTiming({ date, expectedArrivalTime }) {
   const today = todayStr();
   if (date < today) {
     throw new AppError('Visit date cannot be earlier than the current date.');
   }
-  if (date === today && toMinutes(expectedArrivalTime) < nowMinutes()) {
-    throw new AppError(
-      'Expected arrival time for today cannot be earlier than the current time.'
-    );
+  if (date === today && toMinutes(expectedArrivalTime) < nowMinutes() - 1) {
+    throw new AppError('Expected arrival time for today cannot be earlier than the current time.');
   }
 }
 
@@ -48,15 +40,8 @@ function visitorMatch(body) {
   return or;
 }
 
-/**
- * Rule 2 - Duplicate visitor registrations for the same visitor on the same
- *          date should not be allowed.
- * Rule 1 - A visitor cannot have more than one active visit at the same time.
- * Rule 5 - An employee cannot have more than three pending requests.
- */
 export async function validateRegistration(VisitRequestModel, body, excludeId = null) {
-  const { date, expectedArrivalTime, expectedDepartureTime } = body;
-  const today = todayStr();
+  const { date, expectedArrivalTime } = body;
   validateVisitTiming(body);
 
   const match = visitorMatch(body);
@@ -67,54 +52,37 @@ export async function validateRegistration(VisitRequestModel, body, excludeId = 
   const idFilter = excludeId ? { _id: { $ne: excludeId } } : {};
   const sameVisitor = await VisitRequestModel.find({ $and: [{ $or: match }, idFilter] });
 
-  // Rule 2 - same visitor, same date, request not cancelled.
   const duplicate = sameVisitor.find(
     (v) => v.date === date && v.status !== VISIT_STATUS.CANCELLED
   );
   if (duplicate) {
-    throw new AppError(
-      `Duplicate registration not allowed. This visitor already has a registration for ${date}.`
-    );
+    throw new AppError(`Duplicate registration not allowed. This visitor already has a registration for ${date}.`);
   }
 
-  // Rule 1 - overlapping active visit (pending / approved / checked_in).
   const arrivalMin = toMinutes(expectedArrivalTime);
-  const departMin = toMinutes(expectedDepartureTime);
-
   const overlaps = sameVisitor.filter((v) => {
     if (![VISIT_STATUS.PENDING, VISIT_STATUS.APPROVED, VISIT_STATUS.CHECKED_IN].includes(v.status)) {
       return false;
     }
     if (v.date !== date) return false;
     const vA = toMinutes(v.expectedArrivalTime);
-    const vD = toMinutes(v.expectedDepartureTime);
-    return arrivalMin < vD && departMin > vA;
+    const vD = v.slotEndTime ? new Date(v.slotEndTime).getHours() * 60 + new Date(v.slotEndTime).getMinutes() : vA + 60;
+    return arrivalMin < vD;
   });
 
   if (overlaps.length) {
-    throw new AppError(
-      'This visitor already has an active visit during the requested time slot.'
-    );
+    throw new AppError('This visitor already has an active visit during the requested time slot.');
   }
 
-  // Rule 5 - employee max 3 pending requests.
-  if (body.employee) {
-    const pendingCount = await VisitRequestModel.countDocuments({
-      employee: body.employee,
-      status: VISIT_STATUS.PENDING,
-    });
-    if (pendingCount >= 3) {
-      throw new AppError(
-        'This employee already has 3 pending visitor requests awaiting approval.'
-      );
-    }
+  const config = await SystemConfig.getConfig();
+  const activeCount = await VisitRequestModel.countDocuments({
+    status: { $in: [VISIT_STATUS.PENDING, VISIT_STATUS.APPROVED, VISIT_STATUS.CHECKED_IN] },
+  });
+  if (activeCount >= config.maxQueueSize) {
+    throw new AppError(`System queue is full. Maximum ${config.maxQueueSize} active visits allowed.`);
   }
 }
 
-/**
- * Rules 6, 7, 9 - Only approved visitors can be checked in; a checked-in
- * visitor cannot be checked in again; rejected requests cannot be checked in.
- */
 export function canCheckIn(visit) {
   if (!visit) throw new AppError('Visit request not found.', 404);
   if (visit.status === VISIT_STATUS.CANCELLED) {
@@ -134,10 +102,6 @@ export function canCheckIn(visit) {
   }
 }
 
-/**
- * Rule 8 - Check-out time must always be later than check-in time.
- * Rule 7 - Cannot check out without being checked in.
- */
 export function canCheckOut(visit, checkOutTime) {
   if (!visit) throw new AppError('Visit request not found.', 404);
   if (!visit.checkInTime) {
@@ -151,13 +115,10 @@ export function canCheckOut(visit, checkOutTime) {
   }
 }
 
-/**
- * Helper to append an activity entry to a visit request.
- */
 export function addActivity(visit, action, user, note = '') {
   visit.activities.push({
     action,
-    user: user._id || user,
+    user: user?._id || user,
     timestamp: new Date(),
     note,
   });

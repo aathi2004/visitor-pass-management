@@ -5,8 +5,9 @@ import { Spinner, EmptyState } from '../../components/Feedback.jsx';
 import Pagination from '../../components/Pagination.jsx';
 import VisitTable from '../../components/VisitTable.jsx';
 import VisitDetailModal from '../../components/VisitDetailModal.jsx';
+import SlotTimer from '../../components/SlotTimer.jsx';
 
-const EMPTY_FILTER = { visitorName: '', employeeName: '', date: '', status: '' };
+const EMPTY_FILTER = { visitorName: '', employeeName: '', dateFrom: '', dateTo: '', status: '', department: '' };
 
 export default function Visitors() {
   const [rows, setRows] = useState([]);
@@ -16,6 +17,11 @@ export default function Visitors() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
   const [busy, setBusy] = useState(null);
+  const [departments, setDepartments] = useState([]);
+
+  useEffect(() => {
+    api.get('/employees/departments').then((res) => setDepartments(res.data.data || [])).catch(() => {});
+  }, []);
 
   const load = useCallback(
     async (page = 1) => {
@@ -37,6 +43,11 @@ export default function Visitors() {
 
   useEffect(() => {
     load(1);
+  }, [load]);
+
+  useEffect(() => {
+    const id = setInterval(() => load(1), 5000);
+    return () => clearInterval(id);
   }, [load]);
 
   const apply = () => {
@@ -78,7 +89,7 @@ export default function Visitors() {
               <input
                 value={filter.visitorName}
                 onChange={(e) => setFilter((f) => ({ ...f, visitorName: e.target.value }))}
-                placeholder="Search visitor…"
+                placeholder="Search visitor..."
               />
             </div>
             <div className="form-group">
@@ -86,16 +97,33 @@ export default function Visitors() {
               <input
                 value={filter.employeeName}
                 onChange={(e) => setFilter((f) => ({ ...f, employeeName: e.target.value }))}
-                placeholder="Search employee…"
+                placeholder="Search employee..."
               />
             </div>
             <div className="form-group">
-              <label>Visit Date</label>
+              <label>From Date</label>
               <input
                 type="date"
-                value={filter.date}
-                onChange={(e) => setFilter((f) => ({ ...f, date: e.target.value }))}
+                value={filter.dateFrom}
+                onChange={(e) => setFilter((f) => ({ ...f, dateFrom: e.target.value }))}
               />
+            </div>
+            <div className="form-group">
+              <label>To Date</label>
+              <input
+                type="date"
+                value={filter.dateTo}
+                onChange={(e) => setFilter((f) => ({ ...f, dateTo: e.target.value }))}
+              />
+            </div>
+            <div className="form-group">
+              <label>Department</label>
+              <select value={filter.department} onChange={(e) => setFilter((f) => ({ ...f, department: e.target.value }))}>
+                <option value="">All Departments</option>
+                {departments.map((d) => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
             </div>
             <div className="form-group">
               <label>Status</label>
@@ -130,7 +158,7 @@ export default function Visitors() {
           </div>
         </div>
         {loading ? (
-          <Spinner text="Loading visitors…" />
+          <Spinner text="Loading visitors..." />
         ) : rows.length === 0 ? (
           <EmptyState icon="🔍" title="No visitors found" subtitle="Try adjusting your search filters." />
         ) : (
@@ -153,7 +181,10 @@ export default function Visitors() {
           visit={selected}
           onClose={() => setSelected(null)}
           footer={
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
+              {selected.status === 'checked_in' && (
+                <SlotTimer slotEndTime={selected.slotEndTime} status={selected.status} />
+              )}
               {canCheckIn(selected) && (
                 <button
                   className="btn btn-success"
@@ -169,7 +200,7 @@ export default function Visitors() {
                   disabled={busy === selected._id}
                   onClick={() => act(selected._id, 'check-out', `${selected.visitor?.name} checked out.`)}
                 >
-                  ⏻ Check Out
+                  ⏻ End Visit
                 </button>
               )}
               {canCancel(selected) && (

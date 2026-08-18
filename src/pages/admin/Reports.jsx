@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { toast } from 'react-toastify';
-import api, { errorMessage } from '../../services/api.js';
+import api, { errorMessage, downloadFile } from '../../services/api.js';
 import { Spinner } from '../../components/Feedback.jsx';
 import { formatDate } from '../../utils/format.js';
 
@@ -30,17 +30,25 @@ export default function Reports() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [status, setStatus] = useState('');
+  const [department, setDepartment] = useState('');
+  const [departments, setDepartments] = useState([]);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(null);
+
+  useEffect(() => {
+    api.get('/employees/departments').then((res) => setDepartments(res.data.data || [])).catch(() => {});
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { range, status };
+      const params = { range, status, department };
       if (range === 'custom') {
         params.from = from || today();
         params.to = to || today();
       }
+      Object.keys(params).forEach((k) => !params[k] && delete params[k]);
       const res = await api.get('/reports/visitors', { params });
       setData(res.data.data);
     } catch (err) {
@@ -48,11 +56,34 @@ export default function Reports() {
     } finally {
       setLoading(false);
     }
-  }, [range, from, to, status]);
+  }, [range, from, to, status, department]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  const buildExportParams = () => {
+    const params = new URLSearchParams({ range, status, department });
+    if (range === 'custom') {
+      params.set('from', from || today());
+      params.set('to', to || today());
+    }
+    return params.toString();
+  };
+
+  const handleExport = async (format) => {
+    setExporting(format);
+    try {
+      const params = buildExportParams();
+      const filename = `visitor-report-${today()}.${format === 'xlsx' ? 'xlsx' : format}`;
+      await downloadFile(`/exports/visitors?${params}&format=${format}`, filename);
+      toast.success(`Report exported as ${format.toUpperCase()}`);
+    } catch (err) {
+      toast.error(errorMessage(err, 'Export failed'));
+    } finally {
+      setExporting(null);
+    }
+  };
 
   const s = data?.summary;
   const max = data?.topEmployees?.length ? Math.max(...data.topEmployees.map((e) => e.total)) : 1;
@@ -96,22 +127,53 @@ export default function Reports() {
                 <option value="cancelled">Cancelled</option>
               </select>
             </div>
+            <div className="form-group">
+              <label>Department</label>
+              <select value={department} onChange={(e) => setDepartment(e.target.value)}>
+                <option value="">All Departments</option>
+                {departments.map((d) => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            </div>
             <button className="btn btn-primary" onClick={load} style={{ alignSelf: 'flex-end' }}>
               Apply
             </button>
-            <button
-              className="btn btn-outline no-print"
-              style={{ alignSelf: 'flex-end' }}
-              onClick={() => window.print()}
-            >
-              Print / PDF
-            </button>
+            <div className="no-print" style={{ display: 'flex', gap: 6, alignSelf: 'flex-end' }}>
+              <button
+                className="btn btn-outline btn-sm"
+                disabled={!!exporting}
+                onClick={() => handleExport('csv')}
+              >
+                {exporting === 'csv' ? '...' : 'CSV'}
+              </button>
+              <button
+                className="btn btn-outline btn-sm"
+                disabled={!!exporting}
+                onClick={() => handleExport('xlsx')}
+              >
+                {exporting === 'xlsx' ? '...' : 'Excel'}
+              </button>
+              <button
+                className="btn btn-outline btn-sm"
+                disabled={!!exporting}
+                onClick={() => handleExport('pdf')}
+              >
+                {exporting === 'pdf' ? '...' : 'PDF'}
+              </button>
+              <button
+                className="btn btn-outline no-print"
+                onClick={() => window.print()}
+              >
+                Print
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
       {loading ? (
-        <Spinner text="Generating report…" />
+        <Spinner text="Generating report..." />
       ) : !s ? null : (
         <>
           <div className="card" style={{ marginBottom: 20 }}>
@@ -252,6 +314,28 @@ export default function Reports() {
                 ))}
               </div>
             </div>
+
+            {data.byDepartment?.length > 0 && (
+              <div className="card">
+                <div className="card-header">
+                  <h3>By Department</h3>
+                </div>
+                <div className="card-body">
+                  {data.byDepartment.map((d) => (
+                    <div className="bar-row" key={d.department}>
+                      <div className="bar-label" title={d.department}>{d.department}</div>
+                      <div className="bar-track">
+                        <div
+                          className="bar-fill"
+                          style={{ width: `${s.total ? (d.total / s.total) * 100 : 0}%` }}
+                        />
+                      </div>
+                      <div className="bar-value">{d.total}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}

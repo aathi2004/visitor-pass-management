@@ -32,7 +32,7 @@ const activitySchema = new mongoose.Schema(
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
+      default: null,
     },
     timestamp: {
       type: Date,
@@ -57,7 +57,7 @@ const visitRequestSchema = new mongoose.Schema(
     employee: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Employee',
-      required: [true, 'Employee to visit is required'],
+      default: null,
     },
     date: {
       type: String,
@@ -68,11 +68,6 @@ const visitRequestSchema = new mongoose.Schema(
     expectedArrivalTime: {
       type: String,
       required: [true, 'Expected arrival time is required'],
-      match: [/^([01]\d|2[0-3]):[0-5]\d$/, 'Time must be in HH:mm format'],
-    },
-    expectedDepartureTime: {
-      type: String,
-      required: [true, 'Expected departure time is required'],
       match: [/^([01]\d|2[0-3]):[0-5]\d$/, 'Time must be in HH:mm format'],
     },
     purpose: {
@@ -98,6 +93,10 @@ const visitRequestSchema = new mongoose.Schema(
     },
     checkInTime: { type: Date, default: null },
     checkOutTime: { type: Date, default: null },
+    currentTime: { type: Date, default: Date.now },
+    slotStartTime: { type: Date, default: null },
+    slotEndTime: { type: Date, default: null },
+    autoCompleted: { type: Boolean, default: false },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
@@ -107,6 +106,15 @@ const visitRequestSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+visitRequestSchema.index({ status: 1, date: 1 });
+visitRequestSchema.index({ employee: 1, status: 1 });
+visitRequestSchema.index({ employee: 1, date: 1, status: 1 });
+visitRequestSchema.index({ 'visitor.name': 1 });
+visitRequestSchema.index({ createdAt: -1 });
+visitRequestSchema.index({ 'activities.timestamp': -1 });
+visitRequestSchema.index({ 'activities.user': 1, 'activities.timestamp': -1 });
+visitRequestSchema.index({ slotEndTime: 1, status: 1 });
 
 visitRequestSchema.virtual('employeeName').get(function () {
   return this._employeeName;
